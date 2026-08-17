@@ -4,7 +4,7 @@ use core::task::Waker;
 
 use critical_section::Mutex;
 use embassy_time_driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
-use embassy_time_queue_driver::TimerQueue;
+use embassy_time_queue_utils::TimerQueue;
 use heapless::Vec;
 
 use crate::Instant;
@@ -170,7 +170,7 @@ impl TimerQueue for Queue {
     }
 }
 
-embassy_time_queue_driver::timer_queue_impl!(static QUEUE: Queue = Queue::new());
+embassy_time_queue_utils::timer_queue_impl!(static QUEUE: Queue = Queue::new());
 
 #[cfg(test)]
 #[cfg(feature = "mock-driver")]

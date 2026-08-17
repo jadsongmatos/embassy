@@ -128,6 +128,11 @@ impl Spawner {
         unwrap!(self.spawn(token));
     }
 
+    /// Return the unique ID of this Spawner's Executor.
+    pub fn executor_id(&self) -> usize {
+        self.executor.id()
+    }
+
     /// Convert this Spawner to a SendSpawner. This allows you to send the
     /// spawner to other threads, but the spawner loses the ability to spawn
     /// non-Send tasks.
@@ -193,5 +198,10 @@ impl SendSpawner {
     /// Panics if the spawning fails.
     pub fn must_spawn<S: Send>(&self, token: SpawnToken<S>) {
         unwrap!(self.spawn(token));
+    }
+
+    /// Return the unique ID of this Spawner's Executor.
+    pub fn executor_id(&self) -> usize {
+        self.executor.id()
     }
 }

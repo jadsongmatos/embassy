@@ -28,8 +28,8 @@ device-atmega328p = ["atmega-hal/atmega328p", "avr-device/atmega328p"]
 arduino-uno = ["device-atmega328p", "arduino-hal/arduino-uno"]
 
 [dependencies]
-embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.2", git = "https://github.com/ariel-os/embassy", rev = "b9974ece23848d42624f9cbef87a63b1953732e4", optional = true }
+embassy-time = { version = "0.5.1", git = "https://github.com/ariel-os/embassy", rev = "3c1b5fbf28237ea7144ae970c3aec11c38023c3f", optional = true }
 
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"

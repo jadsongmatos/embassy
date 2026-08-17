@@ -339,6 +339,12 @@ impl SyncExecutor {
         }
     }
 
+    /// Return the unique ID of this executor.
+    #[inline]
+    pub fn id(&'static self) -> usize {
+        self as *const _ as usize
+    }
+
     pub(crate) unsafe fn initialize(&'static self) {
         #[cfg(feature = "integrated-timers")]
         embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
@@ -499,6 +505,11 @@ impl Executor {
     /// # Safety
     ///
     /// This function must be called once before any other method is called.
+    /// Return the unique ID of this executor.
+    pub fn id(&'static self) -> usize {
+        self.inner.id()
+    }
+
     pub unsafe fn initialize(&'static self) {
         self.inner.initialize();
     }
@@ -580,7 +591,7 @@ pub fn wake_task_no_pend(task: TaskRef) {
 struct TimerQueue;
 
 #[cfg(feature = "integrated-timers")]
-impl embassy_time_queue_driver::TimerQueue for TimerQueue {
+impl embassy_time_queue_utils::TimerQueue for TimerQueue {
     fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let task = waker::task_from_waker(waker);
         let task = task.header();
@@ -592,7 +603,7 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
 }
 
 #[cfg(feature = "integrated-timers")]
-embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
+embassy_time_queue_utils::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
 
 #[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
 const fn gcd(a: u64, b: u64) -> u64 {
