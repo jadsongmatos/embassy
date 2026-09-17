@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Time driver for AVR (Timer0 CTC at 1 kHz).
 //!
 //! Implements [`embassy_time_driver::Driver`] on the ATmega328P so that
@@ -10,10 +12,10 @@
 //! generates a 1 kHz (1 ms) tick. The `__vector_14` (TIMER0_COMPA) ISR
 //! increments the epoch counter and checks the alarm deadline.
 //!
-//! The alarm is one-shot: the ISR fires the callback (which calls
-//! `Pend::pend` to wake the executor), then sets `at = u64::MAX` so it
-//! won't fire again until the executor calls `set_alarm` with a new
-//! deadline.
+//! The alarm is one-shot: the ISR calls the stored callback (the timer queue,
+//! which wakes the expired timers), then sets the deadline to `u64::MAX` so it
+//! won't fire again until `set_alarm` is called with a new deadline. The
+//! callback itself stays registered.
 //!
 //! ## Critical section
 //!
@@ -23,37 +25,37 @@
 
 use core::cell::{Cell, UnsafeCell};
 
-use embassy_time_driver::{time_driver_impl, AlarmHandle, Driver};
+use embassy_time_driver::{AlarmHandle, Driver};
+use portable_atomic::{AtomicU8, Ordering};
 
 /// The single alarm ID (the executor needs only one alarm).
 const ALARM_ID: u8 = 0;
 
 /// Milliseconds since boot, incremented by the Timer0 ISR (1 kHz tick).
-static EPOCH_MS: critical_section::Mutex<Cell<u64>> =
-    critical_section::Mutex::new(Cell::new(0));
+static EPOCH_MS: critical_section::Mutex<Cell<u64>> = critical_section::Mutex::new(Cell::new(0));
 
 /// Alarm state, accessed under critical_section only (ISR + thread mode).
 struct AlarmState {
-    allocated: bool,
-    callback: Option<fn(*mut ())>,
-    ctx: *mut (),
-    at: u64,
+    timestamp: Cell<u64>,
+    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
 }
 
-// Safety: `*mut ()` is only ever written/read under critical_section.
+// Safety: function pointers and raw pointers are Send + Sync
 unsafe impl Send for AlarmState {}
 unsafe impl Sync for AlarmState {}
 
 static ALARM: critical_section::Mutex<UnsafeCell<AlarmState>> =
     critical_section::Mutex::new(UnsafeCell::new(AlarmState {
-        allocated: false,
-        callback: None,
-        ctx: core::ptr::null_mut(),
-        at: u64::MAX,
+        timestamp: Cell::new(u64::MAX),
+        callback: Cell::new(None),
     }));
+
+static NEXT_ALARM: AtomicU8 = AtomicU8::new(0);
 
 /// Embassy time driver for AVR (Timer0 CTC 1 kHz) — a zero-sized type.
 pub struct EmbassyAvrTimeDriver;
+
+embassy_time_driver::time_driver_impl!(static DRIVER: EmbassyAvrTimeDriver = EmbassyAvrTimeDriver);
 
 impl Driver for EmbassyAvrTimeDriver {
     fn now(&self) -> u64 {
@@ -61,65 +63,72 @@ impl Driver for EmbassyAvrTimeDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|cs| {
-            let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-            if alarm.allocated {
-                None
+        // We only support one alarm
+        let mut x = NEXT_ALARM.load(Ordering::Acquire);
+        loop {
+            if x == 0 {
+                match NEXT_ALARM.compare_exchange(x, 1, Ordering::AcqRel, Ordering::Acquire) {
+                    Ok(_) => return Some(AlarmHandle::new(ALARM_ID + 1)),
+                    Err(actual) => x = actual,
+                }
             } else {
-                alarm.allocated = true;
-                Some(unsafe { AlarmHandle::new(ALARM_ID) })
+                return None;
             }
-        })
+        }
     }
 
     fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
         critical_section::with(|cs| {
             let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-            alarm.callback = Some(callback);
-            alarm.ctx = ctx;
-        });
+            alarm.callback.set(Some((callback, ctx)));
+        })
     }
 
     fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
-        let ts = if timestamp == u64::MAX { u64::MAX } else { timestamp };
+        let now = self.now();
+        if timestamp <= now {
+            return false;
+        }
+
         critical_section::with(|cs| {
             let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-            alarm.at = ts;
+            alarm.timestamp.set(timestamp);
         });
-        ts > self.now()
+        true
     }
 }
-
-time_driver_impl!(static DRIVER: EmbassyAvrTimeDriver = EmbassyAvrTimeDriver);
 
 // ---------------------------------------------------------------------------
 // ISR: TIMER0_COMPA (vector 14)
 // ---------------------------------------------------------------------------
 
-/// `__vector_14` = TIMER0_COMPA (datasheet ATmega328P, Table 12-1).
-///
-/// Increments the 1 kHz epoch counter and checks the alarm deadline.
-/// When reached, fires the registered callback (one-shot).
-#[unsafe(no_mangle)]
-unsafe extern "C" fn __vector_14() {
+#[avr_device::interrupt(atmega328p)]
+fn TIMER0_COMPA() {
+    handle_timer0_compa()
+}
+
+fn handle_timer0_compa() {
     // Clear OCF0A (write-one-to-clear).
     unsafe { write8(TIFR0, 1 << 1) };
 
-    let (_epoch, fire, ctx) = critical_section::with(|cs| {
+    let callback = critical_section::with(|cs| {
         let epoch = EPOCH_MS.borrow(cs).get() + 1;
         EPOCH_MS.borrow(cs).set(epoch);
 
         let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-        if alarm.at <= epoch {
-            alarm.at = u64::MAX; // one-shot
-            (epoch, alarm.callback, alarm.ctx)
+        if alarm.timestamp.get() <= epoch {
+            // One-shot: disarm the alarm, but copy the callback instead of taking it. The driver
+            // contract keeps the callback registered after the alarm fires, and the generic timer
+            // queue only sets it once.
+            alarm.timestamp.set(u64::MAX);
+            alarm.callback.get()
         } else {
-            (epoch, None, core::ptr::null_mut())
+            None
         }
     });
 
-    if let Some(callback) = fire {
-        callback(ctx);
+    if let Some((f, ctx)) = callback {
+        f(ctx);
     }
 }
 
@@ -138,6 +147,11 @@ const TIFR0: u16 = 0x35;
 /// Start Timer0 in CTC mode at 1 kHz and enable the COMPA interrupt.
 ///
 /// Call this once during hardware init, before enabling global interrupts.
+/// Also executes `sei` so the tick (and therefore `embassy-time`) runs.
+///
+/// # Safety
+///
+/// Touches the Timer0 registers; must run once, before the executor starts.
 pub fn init() {
     unsafe {
         // WGM01 = 1, WGM00 = 0 -> CTC mode (clear on compare match A).
@@ -151,9 +165,17 @@ pub fn init() {
         write8(TIMSK0, 1 << 1);
         // CS02:0 = 011 (prescaler /64) -> start timer. 16 MHz / 64 / 250 = 1 kHz.
         write8(TCCR0B, (1 << 1) | (1 << 0));
+        // Enable global interrupts so the COMPA ISR fires. Without `sei` the
+        // epoch never advances and `embassy_time::Timer` never wakes.
+        core::arch::asm!("sei", options(nostack, preserves_flags));
     }
 }
 
+/// Write one I/O register byte.
+///
+/// # Safety
+///
+/// `addr` must be a writable 8-bit I/O register (here: a Timer0 register).
 unsafe fn write8(addr: u16, val: u8) {
     unsafe { core::ptr::write_volatile(addr as *mut u8, val) }
 }

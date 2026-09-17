@@ -27,22 +27,32 @@
 //!   This is acceptable for slow peripherals but means the executor does not
 //!   yield during I2C/SPI transactions.
 //! - UART RX is interrupt-driven; TX is polled.
+//! - [`adc`] exposes the ATmega328P ADC through direct register access so a
+//!   thermistor can be sampled without taking `arduino-hal` peripherals.
+//! - [`serial`] exposes a minimal USART0 driver (57600 8N1) through direct
+//!   register access, so USB serial works without `arduino-hal`. With the `rt`
+//!   feature, reception is interrupt-driven and buffered.
 
 #![no_std]
+#![cfg_attr(target_arch = "avr", feature(asm_experimental_arch))]
+#![cfg_attr(target_arch = "avr", feature(abi_avr_interrupt))]
 #![warn(missing_docs)]
 
+pub mod adc;
 pub mod gpio;
-pub mod time_driver;
-pub mod uart;
 pub mod i2c;
+pub mod serial;
 pub mod spi;
 pub mod storage;
+#[cfg(feature = "time-driver-tc0")]
+pub mod time_driver;
+pub mod uart;
 
 pub use avr_device;
 pub use avr_hal_generic as hal;
 
 // Re-export at chip-level PAC and HAL for downstream `ariel-os-avr` consumers.
-#[cfg(feature = "device-atmega328p")]
-pub use atmega_hal as mcu;
 #[cfg(feature = "arduino-uno")]
 pub use arduino_hal as board;
+#[cfg(feature = "device-atmega328p")]
+pub use atmega_hal as mcu;
