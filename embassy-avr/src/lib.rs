@@ -15,6 +15,8 @@
 //! - `time-driver-tc0` — enable the [`time_driver::EmbassyAvrTimeDriver`]
 //!   backed by Timer0 in CTC mode at ~1 kHz, registered as the global
 //!   `embassy-time` driver.
+//! - `rt` — enable `avr-device`'s runtime, and define the USART0 interrupt
+//!   handlers that `uart` needs.
 //!
 //! ## Limitations
 //!
@@ -26,12 +28,10 @@
 //!   `avr-hal` drivers — they spin until the hardware completes the transaction.
 //!   This is acceptable for slow peripherals but means the executor does not
 //!   yield during I2C/SPI transactions.
-//! - UART RX is interrupt-driven; TX is polled.
+//! - `uart` drives USART0 only, with interrupts in both directions; it needs
+//!   the `rt` feature.
 //! - [`adc`] exposes the ATmega328P ADC through direct register access so a
 //!   thermistor can be sampled without taking `arduino-hal` peripherals.
-//! - [`serial`] exposes a minimal USART0 driver (57600 8N1) through direct
-//!   register access, so USB serial works without `arduino-hal`. With the `rt`
-//!   feature, reception is interrupt-driven and buffered.
 
 #![no_std]
 #![cfg_attr(target_arch = "avr", feature(asm_experimental_arch))]
@@ -41,18 +41,19 @@
 pub mod adc;
 pub mod gpio;
 pub mod i2c;
-pub mod serial;
+#[cfg(all(feature = "rt", feature = "device-atmega328p"))]
+mod ring_buffer;
 pub mod spi;
 pub mod storage;
 #[cfg(feature = "time-driver-tc0")]
 pub mod time_driver;
+#[cfg(all(feature = "rt", feature = "device-atmega328p"))]
 pub mod uart;
-
-pub use avr_device;
-pub use avr_hal_generic as hal;
 
 // Re-export at chip-level PAC and HAL for downstream `ariel-os-avr` consumers.
 #[cfg(feature = "arduino-uno")]
 pub use arduino_hal as board;
 #[cfg(feature = "device-atmega328p")]
 pub use atmega_hal as mcu;
+pub use avr_device;
+pub use avr_hal_generic as hal;

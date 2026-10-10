@@ -12,7 +12,8 @@ documentation = "https://docs.embassy.dev/embassy-avr"
 [features]
 default = ["rt"]
 
-## AVR runtime init (uses avr-device's `entry` to set up .bss/.data/stack)
+## AVR runtime init (uses avr-device's `entry` to set up .bss/.data/stack), and the USART0
+## interrupt handlers of the `uart` module
 rt = ["avr-device/rt"]
 
 ## embassy-time integration: provides a Timer0-based time driver
