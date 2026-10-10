@@ -1,9 +1,7 @@
 [target.avr-none]
+# avr-gcc links with avr-libc's startup code and libgcc. rustc passes
+# `-nodefaultlibs` and its own `-lgcc`, and already derives `-mmcu` from
+# `target-cpu`, so no `-l` belongs here: a `-lc` after that `-lgcc` leaves
+# avr-libc's `exit` without `_exit`.
 linker = "avr-gcc"
-rustflags = [
-    "-C", "target-cpu=atmega328p",
-    "-C", "link-arg=-mmcu=atmega328p",
-    "-C", "link-arg=-latmega328p",
-    "-C", "link-arg=-lm",
-    "-C", "link-arg=-lc",
-]
+rustflags = ["-C", "target-cpu=atmega328p"]
