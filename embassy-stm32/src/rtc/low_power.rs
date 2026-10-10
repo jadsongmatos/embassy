@@ -65,7 +65,9 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5))]
+#[cfg(any(
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
+))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -79,7 +81,9 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5))]
+#[cfg(any(
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
+))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -223,17 +227,31 @@ impl Rtc {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
-        #[cfg(not(stm32u5))]
+        #[cfg(not(any(stm32u5, stm32u0, stm32wba)))]
         {
             use crate::pac::EXTI;
             EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
-            EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+
+            #[cfg(not(stm32wb))]
+            {
+                EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+            }
+            #[cfg(stm32wb)]
+            {
+                EXTI.cpu(0).imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+            }
         }
         #[cfg(stm32u5)]
         {
             use crate::pac::RCC;
             RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
             RCC.apb3smenr().modify(|w| w.set_rtcapbsmen(true));
+        }
+        #[cfg(stm32wba)]
+        {
+            use crate::pac::RCC;
+            // RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
+            RCC.apb7smenr().modify(|w| w.set_rtcapbsmen(true));
         }
     }
 }

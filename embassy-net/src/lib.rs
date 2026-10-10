@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
@@ -15,6 +15,8 @@ pub(crate) mod fmt;
 #[cfg(feature = "dns")]
 pub mod dns;
 mod driver_util;
+#[cfg(feature = "icmp")]
+pub mod icmp;
 #[cfg(feature = "raw")]
 pub mod raw;
 #[cfg(feature = "tcp")]
@@ -104,6 +106,7 @@ impl<const SOCK: usize> StackResources<SOCK> {
 /// Static IP address configuration.
 #[cfg(feature = "proto-ipv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StaticConfigV4 {
     /// IP address and subnet mask.
     pub address: Ipv4Cidr,
@@ -116,6 +119,7 @@ pub struct StaticConfigV4 {
 /// Static IPv6 address configuration
 #[cfg(feature = "proto-ipv6")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StaticConfigV6 {
     /// IP address and subnet mask.
     pub address: Ipv6Cidr,
@@ -128,6 +132,7 @@ pub struct StaticConfigV6 {
 /// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct DhcpConfig {
     /// Maximum lease duration.
@@ -166,7 +171,8 @@ impl Default for DhcpConfig {
 }
 
 /// Network stack configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Config {
     /// IPv4 configuration
@@ -180,7 +186,7 @@ pub struct Config {
 impl Config {
     /// IPv4 configuration with static addressing.
     #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_static(config: StaticConfigV4) -> Self {
+    pub const fn ipv4_static(config: StaticConfigV4) -> Self {
         Self {
             ipv4: ConfigV4::Static(config),
             #[cfg(feature = "proto-ipv6")]
@@ -190,7 +196,7 @@ impl Config {
 
     /// IPv6 configuration with static addressing.
     #[cfg(feature = "proto-ipv6")]
-    pub fn ipv6_static(config: StaticConfigV6) -> Self {
+    pub const fn ipv6_static(config: StaticConfigV6) -> Self {
         Self {
             #[cfg(feature = "proto-ipv4")]
             ipv4: ConfigV4::None,
@@ -206,7 +212,7 @@ impl Config {
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
     #[cfg(feature = "dhcpv4")]
-    pub fn dhcpv4(config: DhcpConfig) -> Self {
+    pub const fn dhcpv4(config: DhcpConfig) -> Self {
         Self {
             ipv4: ConfigV4::Dhcp(config),
             #[cfg(feature = "proto-ipv6")]
@@ -217,7 +223,8 @@ impl Config {
 
 /// Network stack IPv4 configuration.
 #[cfg(feature = "proto-ipv4")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigV4 {
     /// Do not configure IPv4.
     #[default]
@@ -231,7 +238,8 @@ pub enum ConfigV4 {
 
 /// Network stack IPv6 configuration.
 #[cfg(feature = "proto-ipv6")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigV6 {
     /// Do not configure IPv6.
     #[default]

@@ -104,9 +104,6 @@ impl Ipcc {
         rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
 
-        // set RF wake-up clock = LSE
-        crate::pac::RCC.csr().modify(|w| w.set_rfwkpsel(0b01));
-
         let regs = IPCC::regs();
 
         regs.cpu(0).cr().modify(|w| {
@@ -229,11 +226,9 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const WAKER: AtomicWaker = AtomicWaker::new();
-
         Self {
-            rx_wakers: [WAKER; 6],
-            tx_wakers: [WAKER; 6],
+            rx_wakers: [const { AtomicWaker::new() }; 6],
+            tx_wakers: [const { AtomicWaker::new() }; 6],
         }
     }
 

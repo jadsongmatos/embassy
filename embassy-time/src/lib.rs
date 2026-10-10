@@ -3,6 +3,7 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]
+#![deny(missing_debug_implementations)]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
@@ -25,8 +26,6 @@ pub use driver_mock::MockDriver;
 mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
-#[cfg(feature = "generic-queue")]
-mod queue_generic;
 
 pub use delay::{block_for, Delay};
 pub use duration::Duration;

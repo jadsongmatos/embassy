@@ -72,7 +72,7 @@ impl<I: Instance> FlashMemory<I> {
             address: None,
             dummy: DummyCycles::_0,
         };
-        self.qspi.command(transaction);
+        self.qspi.blocking_command(transaction);
     }
 
     pub fn reset_memory(&mut self) {
@@ -143,7 +143,7 @@ impl<I: Instance> FlashMemory<I> {
             dummy: DummyCycles::_0,
         };
         self.enable_write();
-        self.qspi.command(transaction);
+        self.qspi.blocking_command(transaction);
         self.wait_write_finish();
     }
 
@@ -279,6 +279,7 @@ async fn main(_spawner: Spawner) -> ! {
         prescaler: 16,
         cs_high_time: ChipSelectHighTime::_1Cycle,
         fifo_threshold: FIFOThresholdLevel::_16Bytes,
+        sample_shifting: SampleShifting::None,
     };
     let driver = Qspi::new_bank1(
         p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,

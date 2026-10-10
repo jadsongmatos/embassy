@@ -1,7 +1,7 @@
 //! This example implements a TCP echo server on port 1234 and using DHCP.
 //! Send it some data, you should see it echoed back and printed in the console.
 //!
-//! Example written for the [`WIZnet W5500-EVB-Pico`](https://www.wiznet.io/product-item/w5500-evb-pico/) board.
+//! Example written for the [`WIZnet W5500-EVB-Pico`](https://docs.wiznet.io/Product/iEthernet/W5500/w5500-evb-pico) board.
 
 #![no_std]
 #![no_main]
@@ -19,7 +19,6 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
-use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 

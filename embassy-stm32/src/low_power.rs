@@ -70,8 +70,20 @@ use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
 
+#[cfg(not(stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+        }
+    };
+}
+
+#[cfg(stm32u0)]
+foreach_interrupt! {
+    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
@@ -112,15 +124,18 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
+            #[cfg(not(stm32wba))]
             StopMode::Stop2 => Lpms::STOP2,
+            #[cfg(stm32wba)]
+            StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
 }
@@ -186,7 +201,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -244,9 +259,6 @@ impl Executor {
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
         let executor = unsafe { EXECUTOR.as_mut().unwrap() };
-        unsafe {
-            executor.inner.initialize();
-        }
         init(executor.inner.spawner());
 
         loop {
