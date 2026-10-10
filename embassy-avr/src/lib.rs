@@ -32,15 +32,13 @@
 //!   the `rt` feature.
 //! - [`storage`] only re-exports the byte-wise, blocking EEPROM driver of
 //!   `avr-hal`; the async NOR flash adapter over it lives in `ariel-os-avr`.
-//! - [`adc`] exposes the ATmega328P ADC through direct register access so a
-//!   thermistor can be sampled without taking `arduino-hal` peripherals.
+//! - There is no ADC module: the ADC driver of `avr-hal` is available as
+//!   `board::Adc` (or `mcu::Adc`).
 
 #![no_std]
-#![cfg_attr(target_arch = "avr", feature(asm_experimental_arch))]
 #![cfg_attr(target_arch = "avr", feature(abi_avr_interrupt))]
 #![warn(missing_docs)]
 
-pub mod adc;
 pub mod gpio;
 pub mod i2c;
 #[cfg(all(feature = "rt", feature = "device-atmega328p"))]

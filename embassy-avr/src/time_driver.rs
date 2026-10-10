@@ -167,7 +167,7 @@ pub fn init() {
         write8(TCCR0B, (1 << 1) | (1 << 0));
         // Enable global interrupts so the COMPA ISR fires. Without `sei` the
         // epoch never advances and `embassy_time::Timer` never wakes.
-        core::arch::asm!("sei", options(nostack, preserves_flags));
+        avr_device::interrupt::enable();
     }
 }
 
