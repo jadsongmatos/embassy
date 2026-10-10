@@ -30,6 +30,8 @@
 //!   yield during I2C/SPI transactions.
 //! - `uart` drives USART0 only, with interrupts in both directions; it needs
 //!   the `rt` feature.
+//! - [`storage`] only re-exports the byte-wise, blocking EEPROM driver of
+//!   `avr-hal`; the async NOR flash adapter over it lives in `ariel-os-avr`.
 //! - [`adc`] exposes the ATmega328P ADC through direct register access so a
 //!   thermistor can be sampled without taking `arduino-hal` peripherals.
 
