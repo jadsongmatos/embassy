@@ -17,7 +17,7 @@ default = ["rt"]
 rt = ["avr-device/rt"]
 
 ## embassy-time integration: provides a Timer0-based time driver
-time-driver-tc0 = ["dep:embassy-time-driver", "dep:embassy-time", "_time-driver", "embassy-time-driver/tick-hz-1_000"]
+time-driver-tc0 = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "_time-driver", "embassy-time-driver/tick-hz-1_000"]
 
 ## Use TC0 (8-bit Timer0) for the time driver tick
 _time-driver = ["dep:embassy-time-driver"]
@@ -29,8 +29,9 @@ device-atmega328p = ["atmega-hal/atmega328p", "avr-device/atmega328p"]
 arduino-uno = ["device-atmega328p", "arduino-hal/arduino-uno"]
 
 [dependencies]
-embassy-time-driver = { path = "../embassy-time-driver", optional = true }
-embassy-time = { path = "../embassy-time", optional = true }
+# Versions, not paths: in an Ariel OS build these must be the crates that `embassy-time` uses.
+embassy-time-driver = { version = "0.2.2", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", optional = true }
 
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"

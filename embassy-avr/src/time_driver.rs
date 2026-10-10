@@ -1,21 +1,19 @@
 #![allow(missing_docs)]
-
 //! Time driver for AVR (Timer0 CTC at 1 kHz).
 //!
-//! Implements [`embassy_time_driver::Driver`] on the ATmega328P so that
-//! [`embassy_time::Timer`] and friends work alongside the Embassy executor's
-//! `integrated-timers` feature.
+//! Implements [`embassy_time_driver::Driver`] on the ATmega328P, so that
+//! `embassy_time::Timer` and friends work.
 //!
 //! ## Operation
 //!
 //! Timer0 CTC mode with `OCR0A = 249` and prescaler `/64`. At 16 MHz this
-//! generates a 1 kHz (1 ms) tick. The `__vector_14` (TIMER0_COMPA) ISR
-//! increments the epoch counter and checks the alarm deadline.
+//! generates a 1 kHz (1 ms) tick. The `TIMER0_COMPA` ISR counts the ticks,
+//! and when the earliest deadline of the timer queue has passed, it lets the
+//! queue wake the expired wakers and records the next deadline.
 //!
-//! The alarm is one-shot: the ISR calls the stored callback (the timer queue,
-//! which wakes the expired timers), then sets the deadline to `u64::MAX` so it
-//! won't fire again until `set_alarm` is called with a new deadline. The
-//! callback itself stays registered.
+//! The timer queue is [`embassy_time_queue_utils::Queue`]. Its kind comes from
+//! the features of `embassy-time-queue-utils`, which the application selects,
+//! for example `generic-queue-8` through `embassy-time`.
 //!
 //! ## Critical section
 //!
@@ -23,78 +21,62 @@
 //! comes from `avr-device` defaults (`restore-state-u8`) — the application
 //! MUST NOT declare `critical-section` with `features = ["restore-state-*"]`.
 
-use core::cell::{Cell, UnsafeCell};
+use core::cell::{Cell, RefCell};
+use core::task::Waker;
 
-use embassy_time_driver::{AlarmHandle, Driver};
-use portable_atomic::{AtomicU8, Ordering};
+use critical_section::{CriticalSection, Mutex};
+use embassy_time_driver::Driver;
+use embassy_time_queue_utils::Queue;
 
-/// The single alarm ID (the executor needs only one alarm).
-const ALARM_ID: u8 = 0;
-
-/// Milliseconds since boot, incremented by the Timer0 ISR (1 kHz tick).
-static EPOCH_MS: critical_section::Mutex<Cell<u64>> = critical_section::Mutex::new(Cell::new(0));
-
-/// Alarm state, accessed under critical_section only (ISR + thread mode).
-struct AlarmState {
-    timestamp: Cell<u64>,
-    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
+/// Embassy time driver for AVR (Timer0 CTC 1 kHz).
+pub struct EmbassyAvrTimeDriver {
+    /// Milliseconds since boot, counted by the Timer0 ISR.
+    ticks: Mutex<Cell<u64>>,
+    /// Earliest deadline in the queue, or `u64::MAX` when the queue is empty.
+    next_expiration: Mutex<Cell<u64>>,
+    /// Wakers waiting for a deadline.
+    queue: Mutex<RefCell<Queue>>,
 }
 
-// Safety: function pointers and raw pointers are Send + Sync
-unsafe impl Send for AlarmState {}
-unsafe impl Sync for AlarmState {}
-
-static ALARM: critical_section::Mutex<UnsafeCell<AlarmState>> =
-    critical_section::Mutex::new(UnsafeCell::new(AlarmState {
-        timestamp: Cell::new(u64::MAX),
-        callback: Cell::new(None),
-    }));
-
-static NEXT_ALARM: AtomicU8 = AtomicU8::new(0);
-
-/// Embassy time driver for AVR (Timer0 CTC 1 kHz) — a zero-sized type.
-pub struct EmbassyAvrTimeDriver;
-
-embassy_time_driver::time_driver_impl!(static DRIVER: EmbassyAvrTimeDriver = EmbassyAvrTimeDriver);
+embassy_time_driver::time_driver_impl!(static DRIVER: EmbassyAvrTimeDriver = EmbassyAvrTimeDriver {
+    ticks: Mutex::new(Cell::new(0)),
+    next_expiration: Mutex::new(Cell::new(u64::MAX)),
+    queue: Mutex::new(RefCell::new(Queue::new())),
+});
 
 impl Driver for EmbassyAvrTimeDriver {
     fn now(&self) -> u64 {
-        critical_section::with(|cs| EPOCH_MS.borrow(cs).get())
+        critical_section::with(|cs| self.ticks.borrow(cs).get())
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        // We only support one alarm
-        let mut x = NEXT_ALARM.load(Ordering::Acquire);
-        loop {
-            if x == 0 {
-                match NEXT_ALARM.compare_exchange(x, 1, Ordering::AcqRel, Ordering::Acquire) {
-                    Ok(_) => return Some(AlarmHandle::new(ALARM_ID + 1)),
-                    Err(actual) => x = actual,
-                }
-            } else {
-                return None;
+    fn schedule_wake(&self, at: u64, waker: &Waker) {
+        critical_section::with(|cs| {
+            let mut queue = self.queue.borrow(cs).borrow_mut();
+            // `true` when the new deadline comes before every other one.
+            if queue.schedule_wake(at, waker) {
+                self.update_next_expiration(cs, &mut queue);
             }
-        }
-    }
-
-    fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
-            let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-            alarm.callback.set(Some((callback, ctx)));
-        })
-    }
-
-    fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
-        let now = self.now();
-        if timestamp <= now {
-            return false;
-        }
-
-        critical_section::with(|cs| {
-            let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-            alarm.timestamp.set(timestamp);
         });
-        true
+    }
+}
+
+impl EmbassyAvrTimeDriver {
+    /// Wakes the expired wakers, and records the next deadline for the ISR.
+    fn update_next_expiration(&self, cs: CriticalSection<'_>, queue: &mut Queue) {
+        let now = self.ticks.borrow(cs).get();
+        self.next_expiration.borrow(cs).set(queue.next_expiration(now));
+    }
+
+    /// Counts one tick, and handles the deadlines it reaches.
+    fn tick(&self) {
+        critical_section::with(|cs| {
+            let ticks = self.ticks.borrow(cs).get() + 1;
+            self.ticks.borrow(cs).set(ticks);
+            if ticks >= self.next_expiration.borrow(cs).get() {
+                let mut queue = self.queue.borrow(cs).borrow_mut();
+                self.update_next_expiration(cs, &mut queue);
+            }
+        });
     }
 }
 
@@ -104,32 +86,9 @@ impl Driver for EmbassyAvrTimeDriver {
 
 #[avr_device::interrupt(atmega328p)]
 fn TIMER0_COMPA() {
-    handle_timer0_compa()
-}
-
-fn handle_timer0_compa() {
     // Clear OCF0A (write-one-to-clear).
     unsafe { write8(TIFR0, 1 << 1) };
-
-    let callback = critical_section::with(|cs| {
-        let epoch = EPOCH_MS.borrow(cs).get() + 1;
-        EPOCH_MS.borrow(cs).set(epoch);
-
-        let alarm = unsafe { &mut *ALARM.borrow(cs).get() };
-        if alarm.timestamp.get() <= epoch {
-            // One-shot: disarm the alarm, but copy the callback instead of taking it. The driver
-            // contract keeps the callback registered after the alarm fires, and the generic timer
-            // queue only sets it once.
-            alarm.timestamp.set(u64::MAX);
-            alarm.callback.get()
-        } else {
-            None
-        }
-    });
-
-    if let Some((f, ctx)) = callback {
-        f(ctx);
-    }
+    DRIVER.tick();
 }
 
 // ---------------------------------------------------------------------------
